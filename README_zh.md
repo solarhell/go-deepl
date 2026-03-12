@@ -3,6 +3,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go)](https://golang.org/dl/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/solarhell/go-deepl?style=for-the-badge)](https://goreportcard.com/report/github.com/solarhell/go-deepl)
 [![GoDoc](https://img.shields.io/badge/pkg.go.dev-reference-007d9c?style=for-the-badge&logo=go)](https://pkg.go.dev/github.com/solarhell/go-deepl)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/solarhell/go-deepl?utm_source=oss&utm_medium=github&utm_campaign=solarhell%2Fgo-deepl&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 [English](README.md) | 中文
 
@@ -107,13 +108,13 @@ err := client.DeleteGlossary(ctx, glossaryID)
 ## 测试
 
 ```bash
-go test -short ./...
+go test -short -race ./...
 ```
 
 运行集成测试（**会产生 API 调用费用**）：
 
 ```bash
-make e2e-test authKey=YOUR_AUTH_KEY
+DEEPL_AUTH_KEY=YOUR_AUTH_KEY go test -race ./...
 ```
 
 ## 链接
