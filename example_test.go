@@ -3,11 +3,10 @@ package deepl_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 
-	"github.com/solarhell/deepl"
+	"github.com/solarhell/go-deepl"
 )
 
 func ExampleClient_Translate() {
@@ -15,14 +14,13 @@ func ExampleClient_Translate() {
 
 	translated, sourceLang, err := client.Translate(context.TODO(), "Hello, world.", deepl.Chinese)
 	if err != nil {
-		var deeplError deepl.Error
-		if errors.As(err, &deeplError) {
+		if deeplError, ok := errors.AsType[deepl.Error](err); ok {
 			log.Fatalf("deepl api error code %d: %s", deeplError.Code, deeplError.Error())
 		}
 		log.Fatal(err)
 	}
 
-	log.Println(fmt.Sprintf("source language: %s", sourceLang))
+	log.Printf("source language: %s", sourceLang)
 	log.Println(translated)
 }
 
@@ -39,14 +37,13 @@ func ExampleClient_Translate_withOptions() {
 		deepl.Formality(deepl.LessFormal),
 	)
 	if err != nil {
-		var deeplError deepl.Error
-		if errors.As(err, &deeplError) {
-			log.Fatal(fmt.Sprintf("deepl api error code %d: %s", deeplError.Code, deeplError.Error()))
+		if deeplError, ok := errors.AsType[deepl.Error](err); ok {
+			log.Fatalf("deepl api error code %d: %s", deeplError.Code, deeplError.Error())
 		}
 		log.Fatal(err)
 	}
 
-	log.Println(fmt.Sprintf("source language: %s", sourceLang))
+	log.Printf("source language: %s", sourceLang)
 	log.Println(translated)
 }
 
@@ -63,15 +60,14 @@ func ExampleClient_TranslateMany() {
 		deepl.Chinese,
 	)
 	if err != nil {
-		var deeplError deepl.Error
-		if errors.As(err, &deeplError) {
-			log.Fatal(fmt.Sprintf("deepl api error code %d: %s", deeplError.Code, deeplError.Error()))
+		if deeplError, ok := errors.AsType[deepl.Error](err); ok {
+			log.Fatalf("deepl api error code %d: %s", deeplError.Code, deeplError.Error())
 		}
 		log.Fatal(err)
 	}
 
 	for _, translation := range translations {
-		log.Println(fmt.Sprintf("source language: %s", translation.DetectedSourceLanguage))
+		log.Printf("source language: %s", translation.DetectedSourceLanguage)
 		log.Println(translation.Text)
 		log.Println()
 	}
@@ -94,15 +90,14 @@ func ExampleClient_TranslateMany_withOptions() {
 		deepl.Formality(deepl.LessFormal),
 	)
 	if err != nil {
-		var deeplError deepl.Error
-		if errors.As(err, &deeplError) {
-			log.Fatal(fmt.Sprintf("deepl api error code %d: %s", deeplError.Code, deeplError.Error()))
+		if deeplError, ok := errors.AsType[deepl.Error](err); ok {
+			log.Fatalf("deepl api error code %d: %s", deeplError.Code, deeplError.Error())
 		}
 		log.Fatal(err)
 	}
 
 	for _, translation := range translations {
-		log.Println(fmt.Sprintf("source language: %s", translation.DetectedSourceLanguage))
+		log.Printf("source language: %s", translation.DetectedSourceLanguage)
 		log.Println(translation.Text)
 		log.Println()
 	}

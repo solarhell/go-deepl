@@ -9,11 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
-
-	"github.com/bytedance/sonic"
-
-	httpi "github.com/solarhell/deepl/http"
 )
 
 const (
@@ -23,7 +20,7 @@ const (
 
 // A Client is a deepl client.
 type Client struct {
-	client       httpi.Client
+	client       *http.Client
 	authKey      string
 	baseURL      string
 	translateURL string
@@ -36,7 +33,7 @@ type ClientOption func(*Client)
 // A TranslateOption configures a translation request.
 type TranslateOption func(url.Values)
 
-// Error is a DeepL error.
+// Error is a DeepL API error.
 type Error struct {
 	// The HTTP error code, returned by the DeepL API.
 	Code int
@@ -55,13 +52,13 @@ func BaseURL(url string) ClientOption {
 
 // HTTPClient returns a ClientOption that specifies the http.Client that's used
 // when making requests.
-func HTTPClient(client httpi.Client) ClientOption {
+func HTTPClient(client *http.Client) ClientOption {
 	return func(c *Client) {
 		c.client = client
 	}
 }
 
-// SourceLang returns a ClientOption that specifies the source language of the
+// SourceLang returns a TranslateOption that specifies the source language of the
 // input text. If SourceLang is not used, DeepL automatically figures out the
 // source language.
 func SourceLang(lang Language) TranslateOption {
@@ -134,7 +131,12 @@ func Context(context string) TranslateOption {
 }
 
 // New returns a Client that uses authKey as the DeepL authentication key.
+// If authKey is empty, it falls back to the DEEPL_AUTH_KEY environment variable.
 func New(authKey string, opts ...ClientOption) *Client {
+	if authKey == "" {
+		authKey = os.Getenv("DEEPL_AUTH_KEY")
+	}
+
 	c := Client{
 		authKey: authKey,
 		client:  http.DefaultClient,
@@ -151,7 +153,7 @@ func New(authKey string, opts ...ClientOption) *Client {
 }
 
 // HTTPClient returns the underlying http.Client.
-func (c *Client) HTTPClient() httpi.Client {
+func (c *Client) HTTPClient() *http.Client {
 	return c.client
 }
 
@@ -163,6 +165,43 @@ func (c *Client) BaseURL() string {
 // AuthKey returns the DeepL authentication key.
 func (c *Client) AuthKey() string {
 	return c.authKey
+}
+
+// do sends an HTTP request and optionally decodes the JSON response into result.
+// If result is nil, the response body is not decoded.
+func (c *Client) do(ctx context.Context, method, url string, body io.Reader, expectedStatus int, result any) error {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "DeepL-Auth-Key "+c.authKey)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bs, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response body: %w", err)
+	}
+
+	if resp.StatusCode != expectedStatus {
+		return Error{Code: resp.StatusCode, Body: bs}
+	}
+
+	if result != nil {
+		if err := json.Unmarshal(bs, result); err != nil {
+			return fmt.Errorf("decode response: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // Translate translates the provided text into the specified Language and
@@ -248,50 +287,12 @@ func (c *Client) TranslateMany(ctx context.Context, texts []string, targetLang L
 		vals.Set("model_type", "prefer_quality_optimized")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.translateURL, strings.NewReader(vals.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-
-	req.Header.Add("Authorization", "DeepL-Auth-Key "+c.authKey)
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	bs, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, Error{
-			Code: resp.StatusCode,
-			Body: bs,
-		}
-	}
-
 	var response translateResponse
-	err = sonic.Unmarshal(bs, &response)
-	if err != nil {
-		return nil, fmt.Errorf("decode deepl response: %w, body: %s", err, string(bs))
+	if err := c.do(ctx, "POST", c.translateURL, strings.NewReader(vals.Encode()), http.StatusOK, &response); err != nil {
+		return nil, err
 	}
 
 	return response.Translations, nil
-}
-
-func errorFromResp(r *http.Response) error {
-	b, err := io.ReadAll(r.Body)
-	if err != nil {
-		return fmt.Errorf("read response body: %w", err)
-	}
-	return Error{
-		Code: r.StatusCode,
-		Body: b,
-	}
 }
 
 // CreateGlossary as per
@@ -308,26 +309,9 @@ func (c *Client) CreateGlossary(ctx context.Context, name string, sourceLang, ta
 	}
 	vals.Set("entries", strings.Join(entriesTSV, "\n"))
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.glossaryURL, strings.NewReader(vals.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Authorization", "DeepL-Auth-Key "+c.authKey)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return nil, errorFromResp(resp)
-	}
-
 	var response Glossary
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("decode deepl response: %w", err)
+	if err := c.do(ctx, "POST", c.glossaryURL, strings.NewReader(vals.Encode()), http.StatusCreated, &response); err != nil {
+		return nil, err
 	}
 
 	return &response, nil
@@ -336,27 +320,11 @@ func (c *Client) CreateGlossary(ctx context.Context, name string, sourceLang, ta
 // ListGlossaries as per
 // https://www.deepl.com/docs-api/managing-glossaries/listing-glossaries/
 func (c *Client) ListGlossaries(ctx context.Context) ([]Glossary, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.glossaryURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Add("Authorization", "DeepL-Auth-Key "+c.authKey)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorFromResp(resp)
-	}
-
 	var response struct {
 		Glossaries []Glossary `json:"glossaries"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("decode deepl response: %w", err)
+	if err := c.do(ctx, "GET", c.glossaryURL, nil, http.StatusOK, &response); err != nil {
+		return nil, err
 	}
 
 	return response.Glossaries, nil
@@ -365,25 +333,9 @@ func (c *Client) ListGlossaries(ctx context.Context) ([]Glossary, error) {
 // ListGlossary as per
 // https://www.deepl.com/docs-api/managing-glossaries/listing-glossary-information/
 func (c *Client) ListGlossary(ctx context.Context, glossaryID string) (*Glossary, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.glossaryURL+"/"+glossaryID, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Add("Authorization", "DeepL-Auth-Key "+c.authKey)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errorFromResp(resp)
-	}
-
 	var response Glossary
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("decode deepl response: %w", err)
+	if err := c.do(ctx, "GET", c.glossaryURL+"/"+glossaryID, nil, http.StatusOK, &response); err != nil {
+		return nil, err
 	}
 
 	return &response, nil
@@ -396,8 +348,8 @@ func (c *Client) ListGlossaryEntries(ctx context.Context, glossaryID string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Add("Authorization", "DeepL-Auth-Key "+c.authKey)
-	req.Header.Add("Accept", "text/tab-separated-values")
+	req.Header.Set("Authorization", "DeepL-Auth-Key "+c.authKey)
+	req.Header.Set("Accept", "text/tab-separated-values")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -406,7 +358,11 @@ func (c *Client) ListGlossaryEntries(ctx context.Context, glossaryID string) ([]
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, errorFromResp(resp)
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response body: %w", err)
+		}
+		return nil, Error{Code: resp.StatusCode, Body: b}
 	}
 
 	var entries []GlossaryEntry
@@ -432,22 +388,7 @@ func (c *Client) ListGlossaryEntries(ctx context.Context, glossaryID string) ([]
 // DeleteGlossary as per
 // https://www.deepl.com/docs-api/managing-glossaries/deleing-a-glossary/
 func (c *Client) DeleteGlossary(ctx context.Context, glossaryID string) error {
-	req, err := http.NewRequestWithContext(ctx, "DELETE", c.glossaryURL+"/"+glossaryID, nil)
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Add("Authorization", "DeepL-Auth-Key "+c.authKey)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		return errorFromResp(resp)
-	}
-	return nil
+	return c.do(ctx, "DELETE", c.glossaryURL+"/"+glossaryID, nil, http.StatusNoContent, nil)
 }
 
 // Error returns a string representation of the DeepL error, providing details
@@ -466,6 +407,27 @@ func (err Error) Error() string {
 			http.StatusText(err.Code))
 	}
 }
+
+// IsBadRequest returns true if the error is a 400 Bad Request.
+func (err Error) IsBadRequest() bool { return err.Code == http.StatusBadRequest }
+
+// IsUnauthorized returns true if the error is a 403 Forbidden (unauthorized).
+func (err Error) IsUnauthorized() bool { return err.Code == http.StatusForbidden }
+
+// IsNotFound returns true if the error is a 404 Not Found.
+func (err Error) IsNotFound() bool { return err.Code == http.StatusNotFound }
+
+// IsPayloadTooLarge returns true if the error is a 413 Request Entity Too Large.
+func (err Error) IsPayloadTooLarge() bool { return err.Code == http.StatusRequestEntityTooLarge }
+
+// IsRateLimit returns true if the error is a 429 Too Many Requests.
+func (err Error) IsRateLimit() bool { return err.Code == http.StatusTooManyRequests }
+
+// IsQuotaExceeded returns true if the error is a 456 Quota Exceeded.
+func (err Error) IsQuotaExceeded() bool { return err.Code == 456 }
+
+// IsServiceUnavailable returns true if the error is a 503 Service Unavailable.
+func (err Error) IsServiceUnavailable() bool { return err.Code == http.StatusServiceUnavailable }
 
 func boolString(b bool) string {
 	if b {

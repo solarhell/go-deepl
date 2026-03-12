@@ -3,7 +3,7 @@ package deepl_test
 import (
 	"testing"
 
-	"github.com/solarhell/deepl"
+	"github.com/solarhell/go-deepl"
 )
 
 func TestTagHandlingStrategy_Value_String(t *testing.T) {

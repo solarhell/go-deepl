@@ -1,21 +1,19 @@
-name: Release
+name: release-please
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
-  release:
-    name: Release
+  release-please:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Create release
-        uses: actions/create-release@v1.1.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
-          tag_name: ${{ github.ref }}
-          release_name: ${{ github.ref }}
+          release-type: go

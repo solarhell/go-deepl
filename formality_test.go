@@ -3,9 +3,7 @@ package deepl_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
-	"github.com/solarhell/deepl"
+	"github.com/solarhell/go-deepl"
 )
 
 func TestFormality_Value_String(t *testing.T) {
@@ -15,8 +13,12 @@ func TestFormality_Value_String(t *testing.T) {
 		deepl.MoreFormal:    "more",
 	}
 
-	for f, v := range tests {
-		assert.Equal(t, f.Value(), v)
-		assert.Equal(t, f.String(), v)
+	for f, want := range tests {
+		if got := f.Value(); got != want {
+			t.Errorf("%v.Value() = %q, want %q", f, got, want)
+		}
+		if got := f.String(); got != want {
+			t.Errorf("%v.String() = %q, want %q", f, got, want)
+		}
 	}
 }

@@ -3,9 +3,7 @@ package deepl_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
-	"github.com/solarhell/deepl"
+	"github.com/solarhell/go-deepl"
 )
 
 func TestSplitSentence_Value_String(t *testing.T) {
@@ -15,8 +13,12 @@ func TestSplitSentence_Value_String(t *testing.T) {
 		deepl.SplitNoNewlines: "nonewlines",
 	}
 
-	for split, v := range tests {
-		assert.Equal(t, split.Value(), v)
-		assert.Equal(t, split.String(), v)
+	for split, want := range tests {
+		if got := split.Value(); got != want {
+			t.Errorf("%v.Value() = %q, want %q", split, got, want)
+		}
+		if got := split.String(); got != want {
+			t.Errorf("%v.String() = %q, want %q", split, got, want)
+		}
 	}
 }

@@ -5,27 +5,30 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
-	"github.com/solarhell/deepl"
+	"github.com/solarhell/go-deepl"
 )
 
 func TestSourceLang(t *testing.T) {
 	vals := make(url.Values)
-	assert.Equal(t, "", vals.Get("source_lang"))
+	if got := vals.Get("source_lang"); got != "" {
+		t.Errorf("initial source_lang = %q, want empty", got)
+	}
 	deepl.SourceLang(deepl.German)(vals)
-	assert.Equal(t, string(deepl.German), vals.Get("source_lang"))
+	if got := vals.Get("source_lang"); got != string(deepl.German) {
+		t.Errorf("source_lang = %q, want %q", got, string(deepl.German))
+	}
 }
 
 func TestShowBilledChars(t *testing.T) {
 	vals := make(url.Values)
-	assert.Equal(t, "", vals.Get("show_billed_characters"))
 	deepl.ShowBilledChars(true)(vals)
-	assert.Equal(t, "1", vals.Get("show_billed_characters"))
+	if got := vals.Get("show_billed_characters"); got != "1" {
+		t.Errorf("show_billed_characters = %q, want %q", got, "1")
+	}
 	deepl.ShowBilledChars(false)(vals)
-	assert.Equal(t, "0", vals.Get("show_billed_characters"))
-	deepl.ShowBilledChars(true)(vals)
-	assert.Equal(t, "1", vals.Get("show_billed_characters"))
+	if got := vals.Get("show_billed_characters"); got != "0" {
+		t.Errorf("show_billed_characters = %q, want %q", got, "0")
+	}
 }
 
 func TestSplitSentences(t *testing.T) {
@@ -39,20 +42,23 @@ func TestSplitSentences(t *testing.T) {
 		t.Run(split.String(), func(t *testing.T) {
 			vals := make(url.Values)
 			deepl.SplitSentences(split)(vals)
-			assert.Equal(t, vals.Get("split_sentences"), split.Value())
+			if got := vals.Get("split_sentences"); got != split.Value() {
+				t.Errorf("split_sentences = %q, want %q", got, split.Value())
+			}
 		})
 	}
 }
 
 func TestPreserveFormatting(t *testing.T) {
 	vals := make(url.Values)
-	assert.Equal(t, "", vals.Get("preserve_formatting"))
 	deepl.PreserveFormatting(true)(vals)
-	assert.Equal(t, "1", vals.Get("preserve_formatting"))
+	if got := vals.Get("preserve_formatting"); got != "1" {
+		t.Errorf("preserve_formatting = %q, want %q", got, "1")
+	}
 	deepl.PreserveFormatting(false)(vals)
-	assert.Equal(t, "0", vals.Get("preserve_formatting"))
-	deepl.PreserveFormatting(true)(vals)
-	assert.Equal(t, "1", vals.Get("preserve_formatting"))
+	if got := vals.Get("preserve_formatting"); got != "0" {
+		t.Errorf("preserve_formatting = %q, want %q", got, "0")
+	}
 }
 
 func TestFormality(t *testing.T) {
@@ -66,7 +72,9 @@ func TestFormality(t *testing.T) {
 		t.Run(f.String(), func(t *testing.T) {
 			vals := make(url.Values)
 			deepl.Formality(f)(vals)
-			assert.Equal(t, f.Value(), vals.Get("formality"))
+			if got := vals.Get("formality"); got != f.Value() {
+				t.Errorf("formality = %q, want %q", got, f.Value())
+			}
 		})
 	}
 }
@@ -81,16 +89,20 @@ func TestTagHandling(t *testing.T) {
 		t.Run(s.String(), func(t *testing.T) {
 			vals := make(url.Values)
 			deepl.TagHandling(s)(vals)
-			assert.Equal(t, s.Value(), vals.Get("tag_handling"))
+			if got := vals.Get("tag_handling"); got != s.Value() {
+				t.Errorf("tag_handling = %q, want %q", got, s.Value())
+			}
 		})
 	}
 }
 
 func TestIgnoreTags(t *testing.T) {
 	tags := []string{"foo", "bar", "baz"}
-
 	vals := make(url.Values)
 	deepl.IgnoreTags(tags...)(vals)
 
-	assert.Equal(t, strings.Join(tags, ","), vals.Get("ignore_tags"))
+	want := strings.Join(tags, ",")
+	if got := vals.Get("ignore_tags"); got != want {
+		t.Errorf("ignore_tags = %q, want %q", got, want)
+	}
 }

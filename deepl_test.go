@@ -5,362 +5,297 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
-	"time"
 
-	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/ghttp"
-	"github.com/stretchr/testify/assert"
-
-	"github.com/solarhell/deepl"
-	mock_http "github.com/solarhell/deepl/http/mocks"
+	"github.com/solarhell/go-deepl"
 )
 
-var _ = Describe("Client.Translate", func() {
-	var (
-		request           chan *http.Request
-		server            *ghttp.Server
-		mockDeeplResponse string
-		mockDeeplHeader   int
-	)
+func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	return server
+}
 
-	BeforeEach(func() {
-		request = make(chan *http.Request, 1)
-		mockDeeplResponse = "{}"
-		mockDeeplHeader = http.StatusOK
+func translateHandler(t *testing.T, statusCode int, body string, onRequest func(*http.Request)) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/translate" {
+			t.Fatalf("expected /translate, got %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if onRequest != nil {
+			onRequest(r)
+		}
+		w.WriteHeader(statusCode)
+		w.Write([]byte(body))
+	}
+}
 
-		server = ghttp.NewServer()
-		server.AppendHandlers(
-			ghttp.CombineHandlers(
-				ghttp.VerifyRequest("POST", "/translate"),
-				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					err := r.ParseForm()
-					Ω(err).ShouldNot(HaveOccurred())
-					request <- r
-					w.WriteHeader(mockDeeplHeader)
-					w.Write([]byte(mockDeeplResponse))
-				}),
-			),
-		)
-	})
+func TestTranslate_requiredFields(t *testing.T) {
+	var captured *http.Request
+	server := newTestServer(t, translateHandler(t, http.StatusOK,
+		`{"translations": [{"detected_source_language": "EN", "text": "Hallo"}]}`,
+		func(r *http.Request) { captured = r },
+	))
 
-	AfterEach(func() {
-		defer server.Close()
-	})
+	client := deepl.New("an-auth-key", deepl.BaseURL(server.URL))
+	_, _, err := client.Translate(context.Background(), "Hello", deepl.German)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("request was not captured")
+	}
 
-	var (
-		authKey string
-		client  *deepl.Client
+	if got := captured.Header.Get("Authorization"); got != "DeepL-Auth-Key an-auth-key" {
+		t.Errorf("Authorization = %q, want %q", got, "DeepL-Auth-Key an-auth-key")
+	}
+	if got := captured.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+		t.Errorf("Content-Type = %q, want %q", got, "application/x-www-form-urlencoded")
+	}
+	if got := captured.FormValue("target_lang"); got != string(deepl.German) {
+		t.Errorf("target_lang = %q, want %q", got, string(deepl.German))
+	}
+	if got := captured.FormValue("text"); got != "Hello" {
+		t.Errorf("text = %q, want %q", got, "Hello")
+	}
+}
 
-		sourceText       string
-		targetLang       deepl.Language
-		opts             []deepl.TranslateOption
-		resultText       string
-		resultSourceLang deepl.Language
-		resultError      error
-	)
+func TestTranslate_options(t *testing.T) {
+	tests := []struct {
+		name  string
+		opt   deepl.TranslateOption
+		key   string
+		value string
+	}{
+		{"SourceLang", deepl.SourceLang(deepl.English), "source_lang", string(deepl.English)},
+		{"SplitSentences", deepl.SplitSentences(deepl.SplitNone), "split_sentences", deepl.SplitNone.Value()},
+		{"PreserveFormatting", deepl.PreserveFormatting(true), "preserve_formatting", "1"},
+		{"Formality", deepl.Formality(deepl.LessFormal), "formality", deepl.LessFormal.Value()},
+	}
 
-	BeforeEach(func() {
-		authKey = "an-auth-key"
-		sourceText = "This is an example text."
-		targetLang = deepl.German
-		opts = nil
-		resultText = ""
-		resultSourceLang = ""
-		resultError = nil
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured *http.Request
+			server := newTestServer(t, translateHandler(t, http.StatusOK,
+				`{"translations": [{"detected_source_language": "EN", "text": "x"}]}`,
+				func(r *http.Request) { captured = r },
+			))
 
-	JustBeforeEach(func() {
-		client = deepl.New(authKey, deepl.BaseURL(server.URL()))
-		resultText, resultSourceLang, resultError = client.Translate(
-			context.Background(),
-			sourceText,
-			targetLang,
-			opts...,
-		)
-	})
-
-	itAddsTheRequiredFields(&request, &targetLang)
-
-	It("adds the source text", func(ctx SpecContext) {
-		req := <-request
-		Ω(req.FormValue("text")).Should(Equal(sourceText))
-	})
-
-	itHandlesOptions(&request, &opts)
-	itHandlesErrors(&request, &mockDeeplHeader, &resultError)
-
-	When("deepl responds with no translations (is that even possible?)", func() {
-		BeforeEach(func() {
-			mockDeeplResponse = `{"translations": []}`
+			client := deepl.New("key", deepl.BaseURL(server.URL))
+			_, _, err := client.Translate(context.Background(), "text", deepl.German, tt.opt)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := captured.FormValue(tt.key); got != tt.value {
+				t.Errorf("%s = %q, want %q", tt.key, got, tt.value)
+			}
 		})
+	}
+}
 
-		It("returns an empty text", func() {
-			Ω(resultText).Should(BeEmpty())
-		})
+func TestTranslate_errors(t *testing.T) {
+	codes := []int{
+		http.StatusBadRequest,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusRequestEntityTooLarge,
+		http.StatusTooManyRequests,
+		456,
+		http.StatusServiceUnavailable,
+	}
 
-		It("returns an empty language", func() {
-			Ω(resultSourceLang).Should(Equal(deepl.Language("")))
-		})
+	for _, code := range codes {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			server := newTestServer(t, translateHandler(t, code, "{}", nil))
 
-		It("returns an error", func() {
-			Ω(resultError).Should(HaveOccurred())
-		})
-	})
-
-	When("deepl responds with a translation", func() {
-		BeforeEach(func() {
-			mockDeeplResponse = `{"translations": [
-				{
-					"detected_source_language": "EN",
-					"text": "Dies ist ein Beispieltext."
-				}
-			]}`
-		})
-
-		It("returns the translated text", func(ctx SpecContext) {
-			<-request
-			Ω(resultText).Should(Equal("Dies ist ein Beispieltext."))
-		})
-
-		It("returns the detected source language", func(ctx SpecContext) {
-			<-request
-			Ω(resultSourceLang).Should(Equal(deepl.English))
-		})
-	})
-})
-
-var _ = Describe("Client.TranslateMany", func() {
-	var (
-		request           chan *http.Request
-		server            *ghttp.Server
-		mockDeeplResponse string
-		mockDeeplHeader   int
-	)
-
-	BeforeEach(func() {
-		request = make(chan *http.Request, 1)
-		mockDeeplResponse = "{}"
-		mockDeeplHeader = http.StatusOK
-
-		server = ghttp.NewServer()
-		server.AppendHandlers(
-			ghttp.CombineHandlers(
-				ghttp.VerifyRequest("POST", "/translate"),
-				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					err := r.ParseForm()
-					Ω(err).ShouldNot(HaveOccurred())
-					request <- r
-					w.WriteHeader(mockDeeplHeader)
-					w.Write([]byte(mockDeeplResponse))
-				}),
-			),
-		)
-	})
-
-	AfterEach(func() {
-		defer server.Close()
-	})
-
-	var (
-		authKey string
-		client  *deepl.Client
-
-		sourceTexts        []string
-		targetLang         deepl.Language
-		opts               []deepl.TranslateOption
-		resultTranslations []deepl.Translation
-		resultError        error
-	)
-
-	BeforeEach(func() {
-		authKey = "an-auth-key"
-		sourceTexts = nil
-		targetLang = deepl.German
-		opts = nil
-		resultTranslations = nil
-		resultError = nil
-	})
-
-	JustBeforeEach(func() {
-		client = deepl.New(authKey, deepl.BaseURL(server.URL()))
-		resultTranslations, resultError = client.TranslateMany(
-			context.Background(),
-			sourceTexts,
-			targetLang,
-			opts...,
-		)
-	})
-
-	itAddsTheRequiredFields(&request, &targetLang)
-
-	It("adds the source texts", func(ctx SpecContext) {
-		req := <-request
-		Ω(req.Form["text"]).Should(Equal(sourceTexts))
-	})
-
-	itHandlesOptions(&request, &opts)
-	itHandlesErrors(&request, &mockDeeplHeader, &resultError)
-
-	When("the user provides texts", func() {
-		BeforeEach(func() {
-			sourceTexts = []string{
-				"This is an example.",
-				"C'est un autre texte.",
+			client := deepl.New("key", deepl.BaseURL(server.URL))
+			_, _, err := client.Translate(context.Background(), "text", deepl.German)
+			if err == nil {
+				t.Fatal("expected error, got nil")
 			}
 
-			mockDeeplResponse = `{"translations": [
-				{"detected_source_language": "EN", "text": "Dies ist ein Beispiel."},
-				{"detected_source_language": "FR", "text": "Dies ist ein anderer Text."}
-			]}`
+			var deeplError deepl.Error
+			if !errors.As(err, &deeplError) {
+				t.Fatalf("expected deepl.Error, got %T", err)
+			}
+			if deeplError.Code != code {
+				t.Errorf("Code = %d, want %d", deeplError.Code, code)
+			}
 		})
-
-		It("returns the translations", func(ctx SpecContext) {
-			<-request
-			Ω(resultTranslations).Should(Equal([]deepl.Translation{
-				{DetectedSourceLanguage: "EN", Text: "Dies ist ein Beispiel."},
-				{DetectedSourceLanguage: "FR", Text: "Dies ist ein anderer Text."},
-			}))
-		})
-	})
-})
-
-func itAddsTheRequiredFields(request *chan *http.Request, targetLang *deepl.Language) {
-	It("adds the auth key", func(ctx SpecContext) {
-		req := <-*request
-		Ω(req.Header.Get("Authorization")).Should(Equal("DeepL-Auth-Key an-auth-key"))
-	})
-
-	It("uses the correct content-type", func(ctx SpecContext) {
-		req := <-*request
-		Ω(req.Header.Get("Content-Type")).Should(Equal("application/x-www-form-urlencoded"))
-	})
-
-	It("adds the target lang", func(ctx SpecContext) {
-		req := <-*request
-		Ω(req.FormValue("target_lang")).Should(Equal(string(*targetLang)))
-	})
+	}
 }
 
-func itHandlesOptions(request *chan *http.Request, opts *[]deepl.TranslateOption) {
-	Context("with SourceLang() option", func() {
-		BeforeEach(func() {
-			*opts = append(*opts, deepl.SourceLang(deepl.English))
-		})
+func TestTranslate_noTranslations(t *testing.T) {
+	server := newTestServer(t, translateHandler(t, http.StatusOK, `{"translations": []}`, nil))
 
-		It("adds the source lang", func(ctx SpecContext) {
-			req := <-*request
-			Ω(req.FormValue("source_lang")).Should(Equal(string(deepl.English)))
-		})
-	})
-
-	Context("with SplitSentences() option", func() {
-		BeforeEach(func() {
-			*opts = append(*opts, deepl.SplitSentences(deepl.SplitNone))
-		})
-
-		It("adds the split_sentences option", func(ctx SpecContext) {
-			req := <-*request
-			Ω(req.FormValue("split_sentences")).Should(Equal(deepl.SplitNone.Value()))
-		})
-	})
-
-	Context("with PreserveFormatting() option", func() {
-		BeforeEach(func() {
-			*opts = append(*opts, deepl.PreserveFormatting(true))
-		})
-
-		It("adds the preserve_formatting option", func(ctx SpecContext) {
-			req := <-*request
-			Ω(req.FormValue("preserve_formatting")).Should(Equal("1"))
-		})
-	})
-
-	Context("with Formatlity() option", func() {
-		BeforeEach(func() {
-			*opts = append(*opts, deepl.Formality(deepl.LessFormal))
-		})
-
-		It("adds the formality option", func(ctx SpecContext) {
-			req := <-*request
-			Ω(req.FormValue("formality")).Should(Equal(deepl.LessFormal.Value()))
-		})
-	})
+	client := deepl.New("key", deepl.BaseURL(server.URL))
+	text, lang, err := client.Translate(context.Background(), "text", deepl.German)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if text != "" {
+		t.Errorf("text = %q, want empty", text)
+	}
+	if lang != "" {
+		t.Errorf("lang = %q, want empty", lang)
+	}
 }
 
-func itHandlesErrors(request *chan *http.Request, mockDeeplHeader *int, resultError *error) {
-	Context("errors", func() {
-		codes := []int{
-			http.StatusBadRequest,
-			http.StatusForbidden,
-			http.StatusNotFound,
-			http.StatusRequestEntityTooLarge,
-			http.StatusTooManyRequests,
-			456, // quota exceeded. character limit reached
-			http.StatusServiceUnavailable,
-		}
+func TestTranslate_withTranslation(t *testing.T) {
+	server := newTestServer(t, translateHandler(t, http.StatusOK,
+		`{"translations": [{"detected_source_language": "EN", "text": "Dies ist ein Beispieltext."}]}`,
+		nil,
+	))
 
-		for _, code := range codes {
-			code := code
-			Describe(http.StatusText(code), func() {
-				BeforeEach(func() {
-					*mockDeeplHeader = code
-				})
-
-				It("returns an error with a code", func(ctx SpecContext) {
-					<-*request
-					var deeplError deepl.Error
-					Ω(errors.As(*resultError, &deeplError)).Should(BeTrue())
-					Ω(deeplError.Code).Should(Equal(code))
-				})
-			})
-		}
-	})
+	client := deepl.New("key", deepl.BaseURL(server.URL))
+	text, lang, err := client.Translate(context.Background(), "This is an example text.", deepl.German)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if text != "Dies ist ein Beispieltext." {
+		t.Errorf("text = %q, want %q", text, "Dies ist ein Beispieltext.")
+	}
+	if lang != deepl.English {
+		t.Errorf("lang = %q, want %q", lang, deepl.English)
+	}
 }
 
-func TestClient_Translate_withCustomHTTPClient(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+func TestTranslateMany_requiredFields(t *testing.T) {
+	var captured *http.Request
+	server := newTestServer(t, translateHandler(t, http.StatusOK, `{"translations": []}`,
+		func(r *http.Request) { captured = r },
+	))
 
-	httpClient := mock_http.NewMockClient(ctrl)
+	client := deepl.New("an-auth-key", deepl.BaseURL(server.URL))
+	client.TranslateMany(context.Background(), []string{"a", "b"}, deepl.German)
+	if captured == nil {
+		t.Fatal("request was not captured")
+	}
 
-	client := deepl.New("an-auth-key", deepl.HTTPClient(httpClient))
+	if got := captured.Header.Get("Authorization"); got != "DeepL-Auth-Key an-auth-key" {
+		t.Errorf("Authorization = %q, want %q", got, "DeepL-Auth-Key an-auth-key")
+	}
+	if got := captured.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+		t.Errorf("Content-Type = %q, want %q", got, "application/x-www-form-urlencoded")
+	}
+	if got := captured.FormValue("target_lang"); got != string(deepl.German) {
+		t.Errorf("target_lang = %q, want %q", got, string(deepl.German))
+	}
+	if got := captured.Form["text"]; !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("text = %v, want %v", got, []string{"a", "b"})
+	}
+}
 
-	clientCalled := make(chan struct{})
+func TestTranslateMany_withTranslations(t *testing.T) {
+	server := newTestServer(t, translateHandler(t, http.StatusOK,
+		`{"translations": [
+			{"detected_source_language": "EN", "text": "Dies ist ein Beispiel."},
+			{"detected_source_language": "FR", "text": "Dies ist ein anderer Text."}
+		]}`,
+		nil,
+	))
 
-	httpClient.EXPECT().
-		Do(gomock.Any()).
-		DoAndReturn(func(*http.Request) (*http.Response, error) {
-			close(clientCalled)
+	client := deepl.New("key", deepl.BaseURL(server.URL))
+	translations, err := client.TranslateMany(
+		context.Background(),
+		[]string{"This is an example.", "C'est un autre texte."},
+		deepl.German,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []deepl.Translation{
+		{DetectedSourceLanguage: "EN", Text: "Dies ist ein Beispiel."},
+		{DetectedSourceLanguage: "FR", Text: "Dies ist ein anderer Text."},
+	}
+	if !reflect.DeepEqual(translations, want) {
+		t.Errorf("translations = %+v, want %+v", translations, want)
+	}
+}
+
+// roundTripFunc adapts a function to http.RoundTripper for testing.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestTranslate_withCustomHTTPClient(t *testing.T) {
+	called := false
+	customClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			called = true
 			return httptest.NewRecorder().Result(), nil
-		})
+		}),
+	}
 
+	client := deepl.New("an-auth-key", deepl.HTTPClient(customClient))
 	client.Translate(context.Background(), "This is an example text.", deepl.German)
 
-	assert.Eventually(t, func() bool {
-		_, open := <-clientCalled
-		return !open
-	}, time.Second, time.Millisecond*100)
+	if !called {
+		t.Error("custom HTTP client was not called")
+	}
 }
 
 func TestClient_HTTPClient(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	httpClient := mock_http.NewMockClient(ctrl)
-
-	client := deepl.New("an-auth-key", deepl.HTTPClient(httpClient))
-	assert.Same(t, httpClient, client.HTTPClient())
+	customClient := &http.Client{}
+	client := deepl.New("an-auth-key", deepl.HTTPClient(customClient))
+	if client.HTTPClient() != customClient {
+		t.Error("HTTPClient() did not return the custom client")
+	}
 }
 
 func TestClient_BaseURL(t *testing.T) {
 	client := deepl.New("an-auth-key", deepl.BaseURL("base-url"))
-	assert.Equal(t, "base-url", client.BaseURL())
+	if got := client.BaseURL(); got != "base-url" {
+		t.Errorf("BaseURL() = %q, want %q", got, "base-url")
+	}
 }
 
 func TestClient_AuthKey(t *testing.T) {
 	client := deepl.New("supersecure123")
-	assert.Equal(t, "supersecure123", client.AuthKey())
+	if got := client.AuthKey(); got != "supersecure123" {
+		t.Errorf("AuthKey() = %q, want %q", got, "supersecure123")
+	}
+}
+
+func TestClient_AuthKeyFromEnv(t *testing.T) {
+	t.Setenv("DEEPL_AUTH_KEY", "env-key-123")
+	client := deepl.New("")
+	if got := client.AuthKey(); got != "env-key-123" {
+		t.Errorf("AuthKey() = %q, want %q", got, "env-key-123")
+	}
+}
+
+func TestError_classification(t *testing.T) {
+	tests := []struct {
+		code int
+		name string
+		check func(deepl.Error) bool
+	}{
+		{http.StatusBadRequest, "IsBadRequest", deepl.Error.IsBadRequest},
+		{http.StatusForbidden, "IsUnauthorized", deepl.Error.IsUnauthorized},
+		{http.StatusNotFound, "IsNotFound", deepl.Error.IsNotFound},
+		{http.StatusRequestEntityTooLarge, "IsPayloadTooLarge", deepl.Error.IsPayloadTooLarge},
+		{http.StatusTooManyRequests, "IsRateLimit", deepl.Error.IsRateLimit},
+		{456, "IsQuotaExceeded", deepl.Error.IsQuotaExceeded},
+		{http.StatusServiceUnavailable, "IsServiceUnavailable", deepl.Error.IsServiceUnavailable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := deepl.Error{Code: tt.code}
+			if !tt.check(err) {
+				t.Errorf("Error{Code: %d}.%s() = false, want true", tt.code, tt.name)
+			}
+		})
+	}
 }

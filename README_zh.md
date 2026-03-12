@@ -4,17 +4,17 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/solarhell/go-deepl?style=for-the-badge)](https://goreportcard.com/report/github.com/solarhell/go-deepl)
 [![GoDoc](https://img.shields.io/badge/pkg.go.dev-reference-007d9c?style=for-the-badge&logo=go)](https://pkg.go.dev/github.com/solarhell/go-deepl)
 
-English | [中文](README_zh.md)
+[English](README.md) | 中文
 
-A thin, zero-dependency Go client for the [DeepL API](https://developers.deepl.com/docs). Built for Go 1.26+.
+轻量、零依赖的 [DeepL API](https://developers.deepl.com/docs) Go 客户端，基于 Go 1.26+。
 
-## Installation
+## 安装
 
 ```bash
 go get github.com/solarhell/go-deepl
 ```
 
-## Quick Start
+## 快速开始
 
 ```go
 client := deepl.New("your-auth-key")
@@ -26,9 +26,9 @@ translated, sourceLang, err := client.Translate(
 )
 ```
 
-If the API key is empty, it reads from the `DEEPL_AUTH_KEY` environment variable.
+如果 API key 为空，会自动读取 `DEEPL_AUTH_KEY` 环境变量。
 
-## Translate
+## 翻译
 
 ```go
 translated, sourceLang, err := client.Translate(
@@ -41,7 +41,7 @@ translated, sourceLang, err := client.Translate(
 )
 ```
 
-## Translate Multiple Texts
+## 批量翻译
 
 ```go
 translations, err := client.TranslateMany(
@@ -54,7 +54,7 @@ for _, t := range translations {
 }
 ```
 
-## Client Options
+## 客户端配置
 
 ```go
 client := deepl.New("your-auth-key",
@@ -63,7 +63,7 @@ client := deepl.New("your-auth-key",
 )
 ```
 
-## Error Handling
+## 错误处理
 
 ```go
 translated, _, err := client.Translate(ctx, text, deepl.Chinese)
@@ -71,24 +71,24 @@ if err != nil {
     if deeplError, ok := errors.AsType[deepl.Error](err); ok {
         switch {
         case deeplError.IsBadRequest():
-            // invalid parameters (400)
+            // 请求参数无效 (400)
         case deeplError.IsUnauthorized():
-            // invalid API key (403)
+            // API key 无效 (403)
         case deeplError.IsRateLimit():
-            // rate limited (429)
+            // 触发限流 (429)
         case deeplError.IsQuotaExceeded():
-            // character limit reached (456)
+            // 字符额度已用尽 (456)
         case deeplError.IsServiceUnavailable():
-            // service unavailable (503)
+            // 服务不可用 (503)
         }
     }
 }
 ```
 
-## Glossary Management
+## 术语表管理
 
 ```go
-// Create a glossary
+// 创建术语表
 glossary, err := client.CreateGlossary(ctx, "My Glossary",
     deepl.English, deepl.German,
     []deepl.GlossaryEntry{
@@ -97,29 +97,29 @@ glossary, err := client.CreateGlossary(ctx, "My Glossary",
     },
 )
 
-// List all glossaries
+// 列出所有术语表
 glossaries, err := client.ListGlossaries(ctx)
 
-// Delete a glossary
+// 删除术语表
 err := client.DeleteGlossary(ctx, glossaryID)
 ```
 
-## Testing
+## 测试
 
 ```bash
 go test -short ./...
 ```
 
-Run integration tests against the real DeepL API (**this will be billed**):
+运行集成测试（**会产生 API 调用费用**）：
 
 ```bash
 make e2e-test authKey=YOUR_AUTH_KEY
 ```
 
-## Links
+## 链接
 
-- [DeepL API Documentation](https://developers.deepl.com/docs)
+- [DeepL API 文档](https://developers.deepl.com/docs)
 
-## License
+## 许可证
 
 [MIT](./LICENSE)

@@ -5,16 +5,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/solarhell/deepl"
+	"github.com/solarhell/go-deepl"
 )
 
 func TestTranslate_withoutSourceLang(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test.")
-		return
 	}
 
 	client := deepl.New(getAuthKey(t), getOpts()...)
@@ -24,16 +20,20 @@ func TestTranslate_withoutSourceLang(t *testing.T) {
 		"This is an example text.",
 		deepl.German,
 	)
-
-	assert.Nil(t, err)
-	assert.Equal(t, "Dies ist ein Beispieltext.", translated)
-	assert.Equal(t, deepl.English, sourceLang)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if translated != "Dies ist ein Beispieltext." {
+		t.Errorf("translated = %q, want %q", translated, "Dies ist ein Beispieltext.")
+	}
+	if sourceLang != deepl.English {
+		t.Errorf("sourceLang = %q, want %q", sourceLang, deepl.English)
+	}
 }
 
 func TestTranslate_showBilledCharacters(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test.")
-		return
 	}
 
 	client := deepl.New(getAuthKey(t), getOpts()...)
@@ -44,19 +44,26 @@ func TestTranslate_showBilledCharacters(t *testing.T) {
 		deepl.German,
 		deepl.ShowBilledChars(true),
 	)
-
-	require.Nil(t, err)
-	require.Len(t, translations, 1)
-	assert.Equal(t, "Dies ist ein Beispieltext.", translations[0].Text)
-	assert.Equal(t, deepl.English, deepl.Language(translations[0].DetectedSourceLanguage))
-	assert.NotNil(t, translations[0].BilledCharacters)
-	assert.True(t, translations[0].BilledCharacters > 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(translations) != 1 {
+		t.Fatalf("got %d translations, want 1", len(translations))
+	}
+	if translations[0].Text != "Dies ist ein Beispieltext." {
+		t.Errorf("text = %q, want %q", translations[0].Text, "Dies ist ein Beispieltext.")
+	}
+	if deepl.Language(translations[0].DetectedSourceLanguage) != deepl.English {
+		t.Errorf("detected language = %q, want %q", translations[0].DetectedSourceLanguage, deepl.English)
+	}
+	if translations[0].BilledCharacters <= 0 {
+		t.Errorf("billed characters = %d, want > 0", translations[0].BilledCharacters)
+	}
 }
 
 func TestTranslate_withSourceLang(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test.")
-		return
 	}
 
 	client := deepl.New(getAuthKey(t), getOpts()...)
@@ -67,9 +74,12 @@ func TestTranslate_withSourceLang(t *testing.T) {
 		deepl.German,
 		deepl.SourceLang(deepl.English),
 	)
-
-	require.Nil(t, err)
-	assert.Equal(t, deepl.English, sourceLang)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sourceLang != deepl.English {
+		t.Errorf("sourceLang = %q, want %q", sourceLang, deepl.English)
+	}
 
 	// we don't validate the translated text, because the translation behaviour
 	// for an invalid source language is not defined
@@ -78,7 +88,6 @@ func TestTranslate_withSourceLang(t *testing.T) {
 func TestHTMLTagHandling(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test.")
-		return
 	}
 
 	client := deepl.New(getAuthKey(t), getOpts()...)
@@ -89,9 +98,13 @@ func TestHTMLTagHandling(t *testing.T) {
 		deepl.German,
 		deepl.TagHandling(deepl.HTMLTagHandling),
 	)
-
-	require.Nil(t, err)
-	assert.Equal(t, `<p alt="This is a test.">Dies ist ein Test.</p>`, res)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `<p alt="This is a test.">Dies ist ein Test.</p>`
+	if res != want {
+		t.Errorf("result = %q, want %q", res, want)
+	}
 }
 
 func getOpts(opts ...deepl.ClientOption) []deepl.ClientOption {
