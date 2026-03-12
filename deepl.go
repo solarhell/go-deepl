@@ -213,9 +213,8 @@ func (c *Client) do(ctx context.Context, method, url string, body io.Reader, exp
 // into an Error:
 //
 //	trans, sourceLang, err := c.Translate(context.TODO(), "Hello.", deepl.Japanese)
-//	var deeplError deepl.Error
-//	if errors.As(err, &deeplError) {
-//		log.Println(fmt.Sprintf("DeepL error code %d: %s", deeplError.Code, deeplError))
+//	if deeplError, ok := errors.AsType[deepl.Error](err); ok {
+//		log.Printf("DeepL error code %d: %s", deeplError.Code, deeplError)
 //	}
 func (c *Client) Translate(ctx context.Context, text string, targetLang Language, opts ...TranslateOption) (string, Language, error) {
 	translation, err := c.Translation(ctx, text, targetLang, opts...)
@@ -236,9 +235,8 @@ func (c *Client) Translate(ctx context.Context, text string, targetLang Language
 // into an Error:
 //
 //	translation, err := c.Translation(context.TODO(), "Hello.", deepl.Japanese)
-//	var deeplError deepl.Error
-//	if errors.As(err, &deeplError) {
-//		log.Println(fmt.Sprintf("DeepL error code %d: %s", deeplError.Code, deeplError))
+//	if deeplError, ok := errors.AsType[deepl.Error](err); ok {
+//		log.Printf("DeepL error code %d: %s", deeplError.Code, deeplError)
 //	}
 func (c *Client) Translation(ctx context.Context, text string, targetLang Language, opts ...TranslateOption) (Translation, error) {
 	translations, err := c.TranslateMany(ctx, []string{text}, targetLang, opts...)
@@ -266,9 +264,8 @@ func (c *Client) Translation(ctx context.Context, text string, targetLang Langua
 //		[]string{"Hello", "World"},
 //		deepl.Japanese,
 //	)
-//	var deeplError deepl.Error
-//	if errors.As(err, &deeplError) {
-//		log.Println(fmt.Sprintf("DeepL error code %d: %s", deeplError.Code, deeplError))
+//	if deeplError, ok := errors.AsType[deepl.Error](err); ok {
+//		log.Printf("DeepL error code %d: %s", deeplError.Code, deeplError)
 //	}
 func (c *Client) TranslateMany(ctx context.Context, texts []string, targetLang Language, opts ...TranslateOption) ([]Translation, error) {
 	vals := make(url.Values)
@@ -386,7 +383,7 @@ func (c *Client) ListGlossaryEntries(ctx context.Context, glossaryID string) ([]
 }
 
 // DeleteGlossary as per
-// https://www.deepl.com/docs-api/managing-glossaries/deleing-a-glossary/
+// https://www.deepl.com/docs-api/managing-glossaries/deleting-a-glossary/
 func (c *Client) DeleteGlossary(ctx context.Context, glossaryID string) error {
 	return c.do(ctx, "DELETE", c.glossaryURL+"/"+glossaryID, nil, http.StatusNoContent, nil)
 }
