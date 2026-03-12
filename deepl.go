@@ -185,7 +185,7 @@ func (c *Client) doRaw(ctx context.Context, method, url string, body io.Reader, 
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	bs, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -25,7 +25,7 @@ func glossaryHandler(t *testing.T, method, pathSuffix string, statusCode int, bo
 			onRequest(r)
 		}
 		w.WriteHeader(statusCode)
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}
 }
 
@@ -34,7 +34,7 @@ func TestCreateGlossary(t *testing.T) {
 	server := newTestServer(t, glossaryHandler(t, "POST", "", http.StatusCreated,
 		`{"glossary_id":"gl-123","name":"My Glossary","ready":true,"source_lang":"EN","target_lang":"DE","entry_count":2}`,
 		func(r *http.Request) {
-			r.ParseForm()
+			_ = r.ParseForm()
 			captured = r
 		},
 	))
@@ -182,7 +182,7 @@ func TestListGlossaryEntries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = r
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("hello\thallo\nworld\tWelt\n"))
+		_, _ = w.Write([]byte("hello\thallo\nworld\tWelt\n"))
 	}))
 	t.Cleanup(server.Close)
 
@@ -227,7 +227,7 @@ func TestListGlossaryEntries_empty(t *testing.T) {
 func TestListGlossaryEntries_error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"message":"not found"}`))
+		_, _ = w.Write([]byte(`{"message":"not found"}`))
 	}))
 	t.Cleanup(server.Close)
 
@@ -260,7 +260,7 @@ func TestListGlossaryEntries_malformedTSV(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(tt.body))
+				_, _ = w.Write([]byte(tt.body))
 			}))
 			t.Cleanup(server.Close)
 

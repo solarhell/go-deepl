@@ -34,7 +34,7 @@ func translateHandler(t *testing.T, statusCode int, body string, onRequest func(
 			onRequest(r)
 		}
 		w.WriteHeader(statusCode)
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}
 }
 
@@ -175,7 +175,7 @@ func TestTranslateMany_requiredFields(t *testing.T) {
 	))
 
 	client := deepl.New("an-auth-key", deepl.BaseURL(server.URL))
-	client.TranslateMany(context.Background(), []string{"a", "b"}, deepl.German)
+	_, _ = client.TranslateMany(context.Background(), []string{"a", "b"}, deepl.German)
 	if captured == nil {
 		t.Fatal("request was not captured")
 	}
@@ -238,7 +238,7 @@ func TestTranslate_withCustomHTTPClient(t *testing.T) {
 	}
 
 	client := deepl.New("an-auth-key", deepl.HTTPClient(customClient))
-	client.Translate(context.Background(), "This is an example text.", deepl.German)
+	_, _, _ = client.Translate(context.Background(), "This is an example text.", deepl.German)
 
 	if !called {
 		t.Error("custom HTTP client was not called")
