@@ -106,3 +106,19 @@ func TestIgnoreTags(t *testing.T) {
 		t.Errorf("ignore_tags = %q, want %q", got, want)
 	}
 }
+
+func TestGlossaryID(t *testing.T) {
+	vals := make(url.Values)
+	deepl.GlossaryID("abc-123")(vals)
+	if got := vals.Get("glossary_id"); got != "abc-123" {
+		t.Errorf("glossary_id = %q, want %q", got, "abc-123")
+	}
+}
+
+func TestTranslationContext(t *testing.T) {
+	vals := make(url.Values)
+	deepl.TranslationContext("This is context for translation")(vals)
+	if got := vals.Get("context"); got != "This is context for translation" {
+		t.Errorf("context = %q, want %q", got, "This is context for translation")
+	}
+}

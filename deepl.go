@@ -1,10 +1,8 @@
 package deepl
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,11 +120,11 @@ func GlossaryID(glossaryID string) TranslateOption {
 	}
 }
 
-// Context returns a TranslateOption that sets the `context` DeepL
+// TranslationContext returns a TranslateOption that sets the `context` DeepL
 // option.
-func Context(context string) TranslateOption {
+func TranslationContext(ctx string) TranslateOption {
 	return func(vals url.Values) {
-		vals.Set("context", context)
+		vals.Set("context", ctx)
 	}
 }
 
@@ -167,32 +165,46 @@ func (c *Client) AuthKey() string {
 	return c.authKey
 }
 
-// do sends an HTTP request and optionally decodes the JSON response into result.
-// If result is nil, the response body is not decoded.
-func (c *Client) do(ctx context.Context, method, url string, body io.Reader, expectedStatus int, result any) error {
+// doRaw sends an HTTP request and returns the raw response body.
+// Extra headers can be provided via the headers parameter.
+func (c *Client) doRaw(ctx context.Context, method, url string, body io.Reader, expectedStatus int, headers map[string]string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "DeepL-Auth-Key "+c.authKey)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("do request: %w", err)
+		return nil, fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read response body: %w", err)
+		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
 	if resp.StatusCode != expectedStatus {
-		return Error{Code: resp.StatusCode, Body: bs}
+		return nil, Error{Code: resp.StatusCode, Body: bs}
+	}
+
+	return bs, nil
+}
+
+// do sends an HTTP request and optionally decodes the JSON response into result.
+// If result is nil, the response body is not decoded.
+func (c *Client) do(ctx context.Context, method, url string, body io.Reader, expectedStatus int, result any) error {
+	bs, err := c.doRaw(ctx, method, url, body, expectedStatus, nil)
+	if err != nil {
+		return err
 	}
 
 	if result != nil {
@@ -245,7 +257,7 @@ func (c *Client) Translation(ctx context.Context, text string, targetLang Langua
 	}
 
 	if len(translations) == 0 {
-		return Translation{}, errors.New("deepl responded with no translations")
+		return Translation{}, Error{Code: http.StatusOK, Body: []byte("deepl responded with no translations")}
 	}
 
 	return translations[0], nil
@@ -341,42 +353,35 @@ func (c *Client) ListGlossary(ctx context.Context, glossaryID string) (*Glossary
 // ListGlossaryEntries as per
 // https://www.deepl.com/docs-api/managing-glossaries/listing-entries-of-a-glossary/
 func (c *Client) ListGlossaryEntries(ctx context.Context, glossaryID string) ([]GlossaryEntry, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.glossaryURL+"/"+glossaryID+"/entries", nil)
+	bs, err := c.doRaw(ctx, "GET", c.glossaryURL+"/"+glossaryID+"/entries", nil, http.StatusOK, map[string]string{
+		"Accept": "text/tab-separated-values",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, err
 	}
-	req.Header.Set("Authorization", "DeepL-Auth-Key "+c.authKey)
-	req.Header.Set("Accept", "text/tab-separated-values")
 
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
+	return parseTSVEntries(string(bs))
+}
 
-	if resp.StatusCode != http.StatusOK {
-		b, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read response body: %w", err)
-		}
-		return nil, Error{Code: resp.StatusCode, Body: b}
+// parseTSVEntries parses tab-separated glossary entries from the given string.
+func parseTSVEntries(tsv string) ([]GlossaryEntry, error) {
+	if tsv == "" {
+		return nil, nil
 	}
 
 	var entries []GlossaryEntry
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
+	for _, line := range strings.Split(strings.TrimRight(tsv, "\n"), "\n") {
 		parts := strings.Split(line, "\t")
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("expected 2 tab-separated values, got %q", line)
+		}
+		if parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("empty source or target in glossary entry %q", line)
 		}
 		entries = append(entries, GlossaryEntry{
 			Source: parts[0],
 			Target: parts[1],
 		})
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
 	}
 
 	return entries, nil
