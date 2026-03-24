@@ -1,10 +1,12 @@
 package deepl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +25,8 @@ type Client struct {
 	baseURL      string
 	translateURL string
 	glossaryURL  string
+	documentURL  string
+	usageURL     string
 }
 
 // A ClientOption configures a Client.
@@ -45,6 +49,8 @@ func BaseURL(url string) ClientOption {
 		c.baseURL = url
 		c.translateURL = fmt.Sprintf("%s/translate", c.baseURL)
 		c.glossaryURL = fmt.Sprintf("%s/glossaries", c.baseURL)
+		c.documentURL = fmt.Sprintf("%s/document", c.baseURL)
+		c.usageURL = fmt.Sprintf("%s/usage", c.baseURL)
 	}
 }
 
@@ -436,4 +442,116 @@ func boolString(b bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+// UploadDocument uploads a document for translation and returns the document ID and key.
+func (c *Client) UploadDocument(ctx context.Context, file io.Reader, filename string, targetLang Language, opts ...TranslateOption) (*DocumentUploadResponse, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return nil, fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, fmt.Errorf("copy file: %w", err)
+	}
+
+	if err := writer.WriteField("target_lang", string(targetLang)); err != nil {
+		return nil, fmt.Errorf("write target lang: %w", err)
+	}
+
+	vals := make(url.Values)
+	for _, opt := range opts {
+		opt(vals)
+	}
+	for key, values := range vals {
+		for _, value := range values {
+			if err := writer.WriteField(key, value); err != nil {
+				return nil, fmt.Errorf("write field %s: %w", key, err)
+			}
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("close writer: %w", err)
+	}
+
+	bs, err := c.doRaw(ctx, "POST", c.documentURL, &body, http.StatusOK, map[string]string{
+		"Content-Type": writer.FormDataContentType(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var response DocumentUploadResponse
+	if err := json.Unmarshal(bs, &response); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetDocumentStatus checks the translation status of a document.
+func (c *Client) GetDocumentStatus(ctx context.Context, documentID, documentKey string) (*DocumentStatusResponse, error) {
+	var status DocumentStatusResponse
+	bs, err := c.doRaw(ctx, "GET", fmt.Sprintf("%s/%s", c.documentURL, documentID), nil, http.StatusOK, map[string]string{
+		"Document-Key": documentKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal(bs, &status); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &status, nil
+}
+
+// DownloadDocument downloads the translated document.
+func (c *Client) DownloadDocument(ctx context.Context, documentID, documentKey string) (io.ReadCloser, error) {
+	params, err := json.Marshal(struct {
+		DocumentKey string `json:"document_key"`
+	}{
+		DocumentKey: documentKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal params: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/%s/result", c.documentURL, documentID), bytes.NewReader(params))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "DeepL-Auth-Key "+c.authKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer func() { _ = resp.Body.Close() }()
+		bs, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read error body: %w", err)
+		}
+		return nil, Error{Code: resp.StatusCode, Body: bs}
+	}
+
+	return resp.Body, nil
+}
+
+// GetUsageAndQuota retrieves the usage and quota information.
+// https://developers.deepl.com/docs/api-reference/usage-and-quota
+func (c *Client) GetUsageAndQuota(ctx context.Context) (*UsageAndQuotaResponse, error) {
+	var res UsageAndQuotaResponse
+	if err := c.do(ctx, "GET", c.usageURL, nil, http.StatusOK, &res); err != nil {
+		return nil, err
+	}
+
+	return &res, nil
 }

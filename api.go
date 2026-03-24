@@ -34,3 +34,23 @@ type GlossaryEntry struct {
 	Source string
 	Target string
 }
+
+// DocumentUploadResponse represents the response from the file upload API.
+type DocumentUploadResponse struct {
+	DocumentID  string `json:"document_id"`
+	DocumentKey string `json:"document_key"`
+}
+
+// DocumentStatusResponse represents the response from the file status API.
+type DocumentStatusResponse struct {
+	DocumentID       string `json:"document_id"`
+	Status           string `json:"status"`
+	SecondsRemaining int    `json:"seconds_remaining,omitempty"`
+	BilledCharacters int    `json:"billed_characters,omitempty"`
+	ErrorMessage     string `json:"error_message,omitempty"`
+}
+
+type UsageAndQuotaResponse struct {
+	CharacterCount int `json:"character_count"`
+	CharacterLimit int `json:"character_limit"`
+}
