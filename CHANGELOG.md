@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/solarhell/go-deepl/compare/v1.0.0...v1.1.0) (2026-03-24)
+
+
+### Features
+
+* add document translation and usage API, resolve merge conflicts ([5111ee8](https://github.com/solarhell/go-deepl/commit/5111ee8e0d02aaba9fd1363c224d5b9f87a5bdb7))
+
 ## 1.0.0 (2026-03-12)
 
 
